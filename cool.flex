@@ -48,9 +48,9 @@ extern YYSTYPE cool_yylval;
 
 %}
 
-%x comment
-
 %x string
+
+%x comment
 
 /*
  * Regular Expressions and Names
@@ -214,10 +214,8 @@ LE		<=
 }
 
  /*
-  *  Nested comments
-  */
-
-  /* (**) enclosed comments */
+  *  Comments
+  */  
 
 <INITIAL>"*)" { cool_yylval.error_msg = "Unmatched *)"; return ERROR; }
 
