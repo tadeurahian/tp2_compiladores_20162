@@ -53,7 +53,7 @@ extern YYSTYPE cool_yylval;
 %x string
 
 /*
- * Regular Expressions
+ * Regular Expressions and Names
  */
 
 IF		(?i:if)
@@ -110,10 +110,7 @@ ISVOID		(?i:isvoid)
 
 LE		<=
 
-
-/*
- * Names
- */
+%%
 
 {NEW}	{
 	return NEW;
@@ -222,7 +219,7 @@ LE		<=
   *  Nested comments
   */
 
-  /* (**) enclosed commenbts */
+  /* (**) enclosed comments */
 
 <INITIAL> "*)" { 
 	cool_yylval.error_msg = "Unmatched *)"; 
