@@ -34,8 +34,11 @@ extern FILE *fin; /* we read from this file */
 char string_buf[MAX_STR_CONST]; /* to assemble string constants */
 char *string_buf_ptr;
 
-extern int curr_lineno;
+extern int currentLine;
 extern int verbose_flag;
+
+int commentSize;
+int stringSize;
 
 extern YYSTYPE cool_yylval;
 
@@ -45,11 +48,173 @@ extern YYSTYPE cool_yylval;
 
 %}
 
+%x comment
+
+%x string
+
 /*
- * Define names for regular expressions here.
+ * Regular Expressions
  */
 
+IF		(?i:if)
+
+FI		(?i:fi)
+
+IN		(?i:in)
+
+INHERITS	(?i:inherits)
+
+LET		(?i:let)
+
+WHILE		(?i:while)
+
+CASE		(?i:case)
+
+LOOP		(?i:loop)
+
+POOL		(?i:pool)
+
+THEN		(?i:then)
+
+NEW_COMMENT	"(*"
+
+STRING_START	"\""
+
 DARROW          =>
+
+NEW		(?i:new)
+
+INT_CONST	[0-9]+
+
+TRUE		t(?i:rue)
+
+FALSE		f(?i:alse)
+
+ASSIGN		<-
+
+NOT		(?i:not)
+
+TYPEID 		[A-Z][A-Za-z0-9_]*
+
+OBJECTID 	[a-z][A-Za-z0-9_]*
+
+CLASS		(?i:class)
+
+ELSE		(?i:else)
+
+ESAC		(?i:esac)
+
+OF		(?i:of)
+
+ISVOID		(?i:isvoid)
+
+LE		<=
+
+
+/*
+ * Names
+ */
+
+{NEW}	{
+	return NEW;
+}
+
+{CLASS} {
+	return CLASS;
+}
+
+{ELSE} {
+	return ELSE;
+}
+
+{IF} {
+	return IF;
+}
+
+{FI} {
+	return FI;
+}
+
+{IN} {
+	return IN;
+}
+
+{INHERITS} {
+	return INHERITS;
+}
+
+{LET} {
+	return LET;
+}
+
+{LOOP} {
+	return LOOP;
+}
+
+{POOL} {
+	return POOL;
+}
+
+{THEN} {
+	return THEN;
+}
+
+{WHILE} {
+	return WHILE;
+}
+
+{CASE} {
+	return CASE;
+}
+
+{ESAC} { 
+	return ESAC;
+}
+
+{OF} {
+	return OF;
+}
+
+{ISVOID} {
+	return ISVOID;
+}
+
+{LE} {
+	return LE;
+}
+
+{INT_CONST} {
+	cool_yylval.symbol = inttable.add_string(yytext);
+	return INT_CONST;
+}
+
+{TRUE} {
+	cool_yylval.boolean = 1;
+	return BOOL_CONST;
+}
+
+{FALSE} {
+	cool_yylval.boolean = 0;
+	return BOOL_CONST;
+}
+
+{ASSIGN} {
+	return ASSIGN;
+}
+
+{NOT} {
+	return NOT;
+}
+
+{TYPEID} {
+	cool_yylval.symbol = stringtable.add_string(yytext);
+	return TYPEID;
+}
+
+{OBJECTID} {
+	cool_yylval.symbol = stringtable.add_string(yytext);
+	return OBJECTID;
+}
 
 %%
 
@@ -57,86 +222,77 @@ DARROW          =>
   *  Nested comments
   */
 
-// Comments enclosed by (**)
+  /* (**) enclosed commenbts */
 
-<INITIAL>"*)"	{
-  cool_yylval.error_msg = "Unmatched *)";
-  return ERROR;
+<INITIAL> "*)" { 
+	cool_yylval.error_msg = "Unmatched *)"; 
+	return ERROR; 
 }
 
-<INITIAL>{BEGIN_COMMENT} {
-  commentSize = 1;
-  BEGIN(comment);
+<INITIAL> {NEW_COMMENT} { 
+	commentSize = 0; 
+	BEGIN(comment); 	
 }
 
-<comment>{BEGIN_COMMENT} {
-  commentSize++;
+<comment> {NEW_COMMENT} { 
+	commentSize++; 
 }
 
-<comment>.
+<comment> .
 
-<comment>\n {
-  currentLine++;
+<comment> \n { 
+	currentLine++; 
 }
 
-<comment>"*)" {
-  commentSize--;
-  if (commentSize == 0) {
-    BEGIN(INITIAL);
-  }
+<comment> "*)" { 	
+	if (commentSize == 0) { 
+		BEGIN(INITIAL); 
+	} 
 }
 
-// You can't have an EOF in the middle of an (* *) enclosed comment
-
-<comment><<EOF>> {
-  BEGIN(INITIAL);
-  cool_yylval.error_msg = "EOF in comment";
-  return ERROR;
+<comment> <<EOF>> { 	
+	cool_yylval.error_msg = "EOF in comment"; 
+	BEGIN(INITIAL);
+	return ERROR; 
 }
 
-// One line comment started by --
+/* double dash started comments */
 
 "--".*	{  }
 
-{STRING_START} {
-  BEGIN(string);
-  is_broken_string = 0;
-  string_length = 0;
-  extra_length = 0;
-  memset(&string_buf, 0, MAX_STR_CONST);
+{STRING_START} { 
+	stringSize = 0; 
+	memset(&string_buf, 0, MAX_STR_CONST); 
+	BEGIN(string); 	
 }
 
-<string>"\""		{ BEGIN(INITIAL); string_buf[string_length++] = '\0'; if (string_length > MAX_STR_CONST) { cool_yylval.error_msg = "String constant too long"; return ERROR; } else if (!is_broken_string) { cool_yylval.symbol = stringtable.add_string(string_buf); return STR_CONST; } }
+<string>\n {   
+	currentLine++;
+	BEGIN(INITIAL);				
+}
 
-<string>"\\\""		{ string_buf[string_length++] = '"'; }
+<string><<EOF>> {
+	cool_yylval.error_msg = "EOF in string constant";
+  	BEGIN(INITIAL); 
+	return ERROR;
+}
 
-<string>\n		{   
-				curr_lineno++;
-				BEGIN(INITIAL);
-				if (!is_broken_string) {
-  				cool_yylval.error_msg = "Unterminated string constant";
-				return ERROR;
-				}
-			}
-
-<string><<EOF>>		{
-  				cool_yylval.error_msg = "EOF in string constant";
-  				BEGIN(INITIAL); 
-				return ERROR;
-			}
-
-<string>.		{ string_buf[string_length++] = *yytext; }	
+<string>. { 
+	string_buf[stringSize++] = *yytext; 
+}	
 
  /*
   *  The multiple-character operators.
   */
-{DARROW}		{ return (DARROW); }
+
+{DARROW} { 
+	return (DARROW); 
+}
 
  /*
   * Keywords are case-insensitive except for the values true and false,
   * which must begin with a lower-case letter.
   */
-
 
  /*
   *  String constants (C syntax)
@@ -145,5 +301,74 @@ DARROW          =>
   *
   */
 
+  /* return ASCII code from char */
+
+"."	{ 
+	return (int)'.'; 
+}
+
+";"	{ 
+	return (int)';'; 
+}
+
+","	{ 
+	return (int)','; 
+}
+
+"<"	{ 
+	return (int)'<'; 
+}
+
+":"	{ 
+	return (int)':'; 
+}
+
+"="	{ 
+	return (int)'='; 
+}
+
+"+"	{ 
+	return (int)'+'; 
+}
+
+"-"	{ 
+	return (int)'-'; 
+}
+
+"*"	{ 
+	return (int)'*'; 
+}
+
+"/"	{ 
+	return (int)'/'; 
+}
+
+"~"	{ 
+	return (int)'~'; 
+}
+
+"@"	{ 
+	return (int)'@'; 
+}
+
+")"	{ 
+	return (int)')'; 
+}
+
+"("	{ 
+	return (int)'('; 
+}
+
+"}"	{ 
+	return (int)'}'; 
+}
+
+"{"	{ 
+	return (int)'{'; 
+}
+
+\n	{ 
+	currentLine++; 
+}
 
 %%
