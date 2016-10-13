@@ -57,6 +57,75 @@ DARROW          =>
   *  Nested comments
   */
 
+// Comments enclosed by (**)
+
+<INITIAL>"*)"	{
+  cool_yylval.error_msg = "Unmatched *)";
+  return ERROR;
+}
+
+<INITIAL>{BEGIN_COMMENT} {
+  commentSize = 1;
+  BEGIN(comment);
+}
+
+<comment>{BEGIN_COMMENT} {
+  commentSize++;
+}
+
+<comment>.
+
+<comment>\n {
+  currentLine++;
+}
+
+<comment>"*)" {
+  commentSize--;
+  if (commentSize == 0) {
+    BEGIN(INITIAL);
+  }
+}
+
+// You can't have an EOF in the middle of an (* *) enclosed comment
+
+<comment><<EOF>> {
+  BEGIN(INITIAL);
+  cool_yylval.error_msg = "EOF in comment";
+  return ERROR;
+}
+
+// One line comment started by --
+
+"--".*	{  }
+
+{STRING_START} {
+  BEGIN(string);
+  is_broken_string = 0;
+  string_length = 0;
+  extra_length = 0;
+  memset(&string_buf, 0, MAX_STR_CONST);
+}
+
+<string>"\""		{ BEGIN(INITIAL); string_buf[string_length++] = '\0'; if (string_length > MAX_STR_CONST) { cool_yylval.error_msg = "String constant too long"; return ERROR; } else if (!is_broken_string) { cool_yylval.symbol = stringtable.add_string(string_buf); return STR_CONST; } }
+
+<string>"\\\""		{ string_buf[string_length++] = '"'; }
+
+<string>\n		{   
+				curr_lineno++;
+				BEGIN(INITIAL);
+				if (!is_broken_string) {
+  				cool_yylval.error_msg = "Unterminated string constant";
+				return ERROR;
+				}
+			}
+
+<string><<EOF>>		{
+  				cool_yylval.error_msg = "EOF in string constant";
+  				BEGIN(INITIAL); 
+				return ERROR;
+			}
+
+<string>.		{ string_buf[string_length++] = *yytext; }	
 
  /*
   *  The multiple-character operators.
