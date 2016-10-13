@@ -221,62 +221,45 @@ LE		<=
 
   /* (**) enclosed comments */
 
-<INITIAL> "*)" { 
-	cool_yylval.error_msg = "Unmatched *)"; 
-	return ERROR; 
-}
+<INITIAL> "*)" { cool_yylval.error_msg = "Unmatched *)"; return ERROR; }
 
-<INITIAL> {NEW_COMMENT} { 
-	commentSize = 0; 
-	BEGIN(comment); 	
-}
+<INITIAL> {NEW_COMMENT} { commentSize = 0; BEGIN(comment); 	}
 
-<comment> {NEW_COMMENT} { 
-	commentSize++; 
-}
+<comment> {NEW_COMMENT} { commentSize++; }
 
 <comment> .
 
-<comment> \n { 
-	currentLine++; 
-}
+<comment> \n { currentLine++; }
 
-<comment> "*)" { 	
-	if (commentSize == 0) { 
-		BEGIN(INITIAL); 
-	} 
-}
+<comment> "*)" { 	if (commentSize == 0) { BEGIN(INITIAL); } }
 
-<comment> <<EOF>> { 	
-	cool_yylval.error_msg = "EOF in comment"; 
-	BEGIN(INITIAL);
-	return ERROR; 
-}
+<comment> <<EOF>> { 	cool_yylval.error_msg = "EOF in comment"; BEGIN(INITIAL); return ERROR; }
 
 /* double dash started comments */
 
 "--".*	{  }
 
-{STRING_START} { 
-	stringSize = 0; 
-	memset(&string_buf, 0, MAX_STR_CONST); 
-	BEGIN(string); 	
-}
+{STRING_START} { stringSize = 0; memset(&string_buf, 0, MAX_STR_CONST); BEGIN(string); 	}
 
-<string>\n {   
-	currentLine++;
-	BEGIN(INITIAL);				
-}
+<string>"\\\"" { string_buf[stringSize++] = '"'; }
 
-<string><<EOF>> {
-	cool_yylval.error_msg = "EOF in string constant";
-  	BEGIN(INITIAL); 
-	return ERROR;
-}
+<string>"\\n" { string_buf[stringSize++] = '\n'; }
 
-<string>. { 
-	string_buf[stringSize++] = *yytext; 
-}	
+<string>"\\\n" { currentLine++; string_buf[stringSize++] = '\n'; }
+
+<string>"\\\\" { string_buf[stringSize++] = '\\'; }
+
+<string>"\\" { stringSize++; }
+
+<string>[\0] { cool_yylval.error_msg = "String contains null character"; return ERROR; }
+
+<string>\\\0 { cool_yylval.error_msg = "String contains escaped null character."; return ERROR; }
+
+<string>\n { currentLine++; BEGIN(INITIAL); }
+
+<string><<EOF>> { cool_yylval.error_msg = "EOF in string constant"; BEGIN(INITIAL); return ERROR; }
+
+<string>.   { string_buf[stringSize++] = *yytext; }
 
  /*
   *  The multiple-character operators.
