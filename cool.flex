@@ -34,7 +34,7 @@ extern FILE *fin; /* we read from this file */
 char string_buf[MAX_STR_CONST]; /* to assemble string constants */
 char *string_buf_ptr;
 
-extern int currentLine;
+extern int curr_lineno;
 extern int verbose_flag;
 
 int commentSize;
@@ -213,53 +213,33 @@ LE		<=
 	return OBJECTID;
 }
 
-%%
-
  /*
   *  Nested comments
   */
 
   /* (**) enclosed comments */
 
-<INITIAL> "*)" { cool_yylval.error_msg = "Unmatched *)"; return ERROR; }
+<INITIAL>"*)" { cool_yylval.error_msg = "Unmatched *)"; return ERROR; }
 
-<INITIAL> {NEW_COMMENT} { commentSize = 0; BEGIN(comment); 	}
+<INITIAL>{NEW_COMMENT} { commentSize = 0; BEGIN(comment); 	}
 
-<comment> {NEW_COMMENT} { commentSize++; }
+<comment>{NEW_COMMENT} { commentSize++; }
 
-<comment> .
+<comment>.
 
-<comment> \n { currentLine++; }
+<comment>\n { curr_lineno++; }
 
-<comment> "*)" { 	if (commentSize == 0) { BEGIN(INITIAL); } }
+<comment>"*)" { 	if (commentSize == 0) { BEGIN(INITIAL); } }
 
-<comment> <<EOF>> { 	cool_yylval.error_msg = "EOF in comment"; BEGIN(INITIAL); return ERROR; }
-
-/* double dash started comments */
+<comment><<EOF>> { 	cool_yylval.error_msg = "EOF in comment"; BEGIN(INITIAL); return ERROR; }
 
 "--".*	{  }
 
 {STRING_START} { stringSize = 0; memset(&string_buf, 0, MAX_STR_CONST); BEGIN(string); 	}
 
-<string>"\\\"" { string_buf[stringSize++] = '"'; }
-
-<string>"\\n" { string_buf[stringSize++] = '\n'; }
-
-<string>"\\\n" { currentLine++; string_buf[stringSize++] = '\n'; }
-
-<string>"\\\\" { string_buf[stringSize++] = '\\'; }
-
-<string>"\\" { stringSize++; }
-
-<string>[\0] { cool_yylval.error_msg = "String contains null character"; return ERROR; }
-
-<string>\\\0 { cool_yylval.error_msg = "String contains escaped null character."; return ERROR; }
-
-<string>\n { currentLine++; BEGIN(INITIAL); }
+<string>\n { curr_lineno++; BEGIN(INITIAL); }
 
 <string><<EOF>> { cool_yylval.error_msg = "EOF in string constant"; BEGIN(INITIAL); return ERROR; }
-
-<string>.   { string_buf[stringSize++] = *yytext; }
 
  /*
   *  The multiple-character operators.
@@ -348,7 +328,7 @@ LE		<=
 }
 
 \n	{ 
-	currentLine++; 
+	curr_lineno++; 
 }
 
 %%
