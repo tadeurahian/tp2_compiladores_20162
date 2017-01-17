@@ -7,7 +7,9 @@
  *  output, so headers and global definitions are placed here to be visible
  * to the code in the file.  Don't remove anything that was here initially
  */
+
 %{
+
 #include <cool-parse.h>
 #include <stringtab.h>
 #include <utilities.h>
@@ -34,11 +36,15 @@ extern FILE *fin; /* we read from this file */
 char string_buf[MAX_STR_CONST]; /* to assemble string constants */
 char *string_buf_ptr;
 
+int string_length;
+int extra_length;
+
+int comment_depth;
+
+int is_broken_string = 0;
+
 extern int curr_lineno;
 extern int verbose_flag;
-
-int commentSize;
-int stringSize;
 
 extern YYSTYPE cool_yylval;
 
@@ -48,35 +54,16 @@ extern YYSTYPE cool_yylval;
 
 %}
 
-%x string
-
 %x comment
 
+%x string
+
 /*
- * Regular Expressions and Names
+ * Define names for regular expressions here.
  */
 
-IF		(?i:if)
 
-FI		(?i:fi)
-
-IN		(?i:in)
-
-INHERITS	(?i:inherits)
-
-LET		(?i:let)
-
-WHILE		(?i:while)
-
-CASE		(?i:case)
-
-LOOP		(?i:loop)
-
-POOL		(?i:pool)
-
-THEN		(?i:then)
-
-NEW_COMMENT	"(*"
+COMMENT_START	"(*"
 
 STRING_START	"\""
 
@@ -101,6 +88,26 @@ OBJECTID 	[a-z][A-Za-z0-9_]*
 CLASS		(?i:class)
 
 ELSE		(?i:else)
+
+IF		(?i:if)
+
+FI		(?i:fi)
+
+IN		(?i:in)
+
+INHERITS	(?i:inherits)
+
+LET		(?i:let)
+
+LOOP		(?i:loop)
+
+POOL		(?i:pool)
+
+THEN		(?i:then)
+
+WHILE		(?i:while)
+
+CASE		(?i:case)
 
 ESAC		(?i:esac)
 
@@ -164,7 +171,7 @@ LE		<=
 	return CASE;
 }
 
-{ESAC} { 
+{ESAC} {
 	return ESAC;
 }
 
@@ -214,119 +221,111 @@ LE		<=
 }
 
  /*
-  *  Comments
-  */  
+  *  Nested comments
+  */
 
-<INITIAL>"*)" { cool_yylval.error_msg = "Unmatched *)"; return ERROR; }
+<INITIAL>"*)"	{ cool_yylval.error_msg = "Unmatched *)"; return ERROR; }
 
-<INITIAL>{NEW_COMMENT} { commentSize = 0; BEGIN(comment); 	}
+<INITIAL>{COMMENT_START}	{ BEGIN(comment); comment_depth = 1; }
 
-<comment>{NEW_COMMENT} { commentSize++; }
-
+<comment>{COMMENT_START} 	{ comment_depth++; }
 <comment>.
+<comment>\n			{ curr_lineno++; }
+<comment>"*)" 			{ comment_depth--; if (comment_depth == 0) { BEGIN(INITIAL); } }
+<comment><<EOF>>		{ BEGIN(INITIAL); cool_yylval.error_msg = "EOF in comment"; return ERROR; }
 
-<comment>\n { curr_lineno++; }
-
-<comment>"*)" { 	if (commentSize == 0) { BEGIN(INITIAL); } }
-
-<comment><<EOF>> { 	cool_yylval.error_msg = "EOF in comment"; BEGIN(INITIAL); return ERROR; }
 
 "--".*	{  }
 
-{STRING_START} { stringSize = 0; memset(&string_buf, 0, MAX_STR_CONST); BEGIN(string); 	}
 
-<string>\n { curr_lineno++; BEGIN(INITIAL); }
+{STRING_START}		{ BEGIN(string); is_broken_string = 0; string_length = 0; extra_length = 0; memset(&string_buf, 0, MAX_STR_CONST); }
 
-<string><<EOF>> { cool_yylval.error_msg = "EOF in string constant"; BEGIN(INITIAL); return ERROR; }
+<string>"\""		{ BEGIN(INITIAL); string_buf[string_length++] = '\0'; if (string_length > MAX_STR_CONST) { cool_yylval.error_msg = "String constant too long"; return ERROR; } else if (!is_broken_string) { cool_yylval.symbol = stringtable.add_string(string_buf); return STR_CONST; } }
+
+<string>"\\\""		{ string_buf[string_length++] = '"'; }
+
+<string>"\\n"		{ string_buf[string_length++] = '\n'; }
+<string>"\\t"		{ string_buf[string_length++] = '\t'; }
+<string>"\\f"		{ string_buf[string_length++] = '\f'; }
+<string>"\\b"		{ string_buf[string_length++] = '\b'; }
+
+<string>"\\\n"		{ curr_lineno++; string_buf[string_length++] = '\n'; }
+
+<string>"\\\\"		{ string_buf[string_length++] = '\\'; }
+
+<string>"\\"		{ extra_length++; }
+
+<string>[\0]		{
+				is_broken_string = 1;
+  				cool_yylval.error_msg = "String contains null character";
+				return ERROR;
+			}
+
+<string>\\\0		{
+				is_broken_string = 1;
+  				cool_yylval.error_msg = "String contains escaped null character.";
+				return ERROR;
+			}
+
+
+<string>\n		{
+				curr_lineno++;
+				BEGIN(INITIAL);
+				if (!is_broken_string) {
+  				cool_yylval.error_msg = "Unterminated string constant";
+				return ERROR;
+				}
+			}
+
+<string><<EOF>>		{
+  				cool_yylval.error_msg = "EOF in string constant";
+  				BEGIN(INITIAL);
+				return ERROR;
+			}
+
+<string>.		{ string_buf[string_length++] = *yytext; }
 
  /*
   *  The multiple-character operators.
   */
-
-{DARROW} { 
-	return (DARROW); 
-}
+{DARROW}		{ return (DARROW); }
 
  /*
   * Keywords are case-insensitive except for the values true and false,
   * which must begin with a lower-case letter.
   */
 
+
+
  /*
   *  String constants (C syntax)
-  *  Escape sequence \c is accepted for all characters c. Except for 
+  *  Escape sequence \c is accepted for all characters c. Except for
   *  \n \t \b \f, the result is c.
   *
   */
 
-  /* return ASCII code from char */
 
-"."	{ 
-	return (int)'.'; 
-}
+"."	{ return (int)'.'; }
+";"	{ return (int)';'; }
+","	{ return (int)','; }
+")"	{ return (int)')'; }
+"("	{ return (int)'('; }
+"}"	{ return (int)'}'; }
+"{"	{ return (int)'{'; }
+"<"	{ return (int)'<'; }
+":"	{ return (int)':'; }
+"="	{ return (int)'='; }
+"+"	{ return (int)'+'; }
+"-"	{ return (int)'-'; }
+"*"	{ return (int)'*'; }
+"/"	{ return (int)'/'; }
+"~"	{ return (int)'~'; }
+"@"	{ return (int)'@'; }
 
-";"	{ 
-	return (int)';'; 
-}
+\t|" "|\f|\v|\r
 
-","	{ 
-	return (int)','; 
-}
+\n	{ curr_lineno++; }
 
-"<"	{ 
-	return (int)'<'; 
-}
-
-":"	{ 
-	return (int)':'; 
-}
-
-"="	{ 
-	return (int)'='; 
-}
-
-"+"	{ 
-	return (int)'+'; 
-}
-
-"-"	{ 
-	return (int)'-'; 
-}
-
-"*"	{ 
-	return (int)'*'; 
-}
-
-"/"	{ 
-	return (int)'/'; 
-}
-
-"~"	{ 
-	return (int)'~'; 
-}
-
-"@"	{ 
-	return (int)'@'; 
-}
-
-")"	{ 
-	return (int)')'; 
-}
-
-"("	{ 
-	return (int)'('; 
-}
-
-"}"	{ 
-	return (int)'}'; 
-}
-
-"{"	{ 
-	return (int)'{'; 
-}
-
-\n	{ 
-	curr_lineno++; 
-}
+.	{ cool_yylval.error_msg = strdup(yytext); return ERROR; }
 
 %%
